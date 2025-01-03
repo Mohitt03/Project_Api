@@ -88,4 +88,78 @@ router.post(
   }
 );
 
+router.post('/forgot-password', [
+    check('email', 'Please include a valid email').isEmail()
+], async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { email } = req.body;
+    try {
+        let user = await User.findOne({ email });
+        if (!user) {
+            return res.status(400).json({ msg: 'User does not exist' });
+        }
+
+        const resetToken = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+
+        const transporter = nodemailer.createTransport({
+            service: 'Gmail',
+            auth: {
+                user: process.env.EMAIL,
+                pass: process.env.EMAIL_PASSWORD
+            }
+        });
+
+        const mailOptions = {
+            from: process.env.EMAIL,
+            to: email,
+            subject: 'Password Reset',
+            text: `You requested for a password reset. Click on this link to reset your password: ${process.env.CLIENT_URL}/reset-password/${resetToken}`
+        };
+
+        transporter.sendMail(mailOptions, (error, info) => {
+            if (error) {
+                console.log(error);
+                return res.status(500).json({ msg: 'Email could not be sent' });
+            }
+            res.json({ msg: 'Email sent successfully' });
+        });
+
+    } catch (error) {
+        console.error(error.message);
+        res.status(500).send('Server Error');
+    }
+});
+
+router.post('/reset-password/:token', [
+    check('password', 'Password is required').exists()
+], async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { password } = req.body;
+    try {
+        const decoded = jwt.verify(req.params.token, process.env.JWT_SECRET);
+        let user = await User.findById(decoded.id);
+        if (!user) {
+            return res.status(400).json({ msg: 'Invalid token' });
+        }
+
+        user.password = password;
+        await user.save();
+        res.json({ msg: 'Password reset successfully' });
+
+    } catch (error) {
+        console.error(error.message);
+        res.status(500).send('Server Error');
+    }
+});
+
+
+
 module.exports = router;
